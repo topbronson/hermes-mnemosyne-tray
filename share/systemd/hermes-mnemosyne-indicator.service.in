@@ -1,6 +1,7 @@
 [Unit]
 Description=Hermes Mnemosyne Tray Indicator
-After=network-online.target
+After=network-online.target hermes-gateway.service
+PartOf=hermes-gateway.service
 StartLimitIntervalSec=0
 
 [Service]

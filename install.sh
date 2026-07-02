@@ -26,11 +26,14 @@ HERMES_BIN_PATH="$(command -v hermes || true)"
 # package importable. We check the same three places the indicator
 # detection below uses; this single value drives both EXEC_LINE (for
 # the .desktop and systemd units) and the wrapper-shim shebang.
+# We use `readlink -e` (which returns nothing if the path doesn't resolve
+# to an existing file) so we don't get tricked by a broken self-symlink
+# left over from a previous failed install.
 INDICATOR_PY=""
-if [[ -x "$HOME/.local/bin/hermes-mnemosyne-indicator" ]]; then
+if [[ -n "$(readlink -e "$HOME/.local/bin/hermes-mnemosyne-indicator" 2>/dev/null)" ]]; then
     # pip install --user → use system python (which has the package)
     INDICATOR_PY="/usr/bin/python3"
-elif [[ -x "$REPO_ROOT/.venv/bin/hermes-mnemosyne-indicator" ]]; then
+elif [[ -n "$(readlink -e "$REPO_ROOT/.venv/bin/hermes-mnemosyne-indicator" 2>/dev/null)" ]]; then
     INDICATOR_PY="$REPO_ROOT/.venv/bin/python3"
 elif [[ -x "$REPO_ROOT/.venv/bin/python3" ]]; then
     INDICATOR_PY="$REPO_ROOT/.venv/bin/python3"
@@ -51,10 +54,14 @@ fi
 # Auto-detect HERMES_MNEMOSYNE_HOST
 # -----------------------------------------------------------------------------
 # The Mnemosyne dashboard plugin in ~/.hermes/config.yaml is the source of
-# truth. Read the `host:` setting (which is normally your Tailscale IP).
-# Falls back to the env var, then to "localhost".
+# truth. If that doesn't have a `host:` line, fall back to the user's
+# Tailscale IPv4 address (`tailscale ip -4` is the canonical source for
+# that). Final fallback: localhost.
 DETECTED_MNEMOSYNE_HOST="$(grep -E '^\s*host:' "$HOME/.hermes/config.yaml" 2>/dev/null \
     | head -1 | awk -F: '{print $2}' | tr -d ' "' || true)"
+if [[ -z "$DETECTED_MNEMOSYNE_HOST" ]]; then
+    DETECTED_MNEMOSYNE_HOST="$(tailscale ip -4 2>/dev/null | head -1 || true)"
+fi
 HERMES_MNEMOSYNE_HOST="${HERMES_MNEMOSYNE_HOST:-${DETECTED_MNEMOSYNE_HOST:-localhost}}"
 echo "Mnemosyne host: $HERMES_MNEMOSYNE_HOST"
 
@@ -91,15 +98,26 @@ mkdir -p "$BIN_DIR" "$APPS_DIR" "$AUTOSTART_DIR" "$ICON_DIR" "$SVG_DIR" "$SYSTEM
 #      This makes ./install.sh work without a `pip install --user` step
 #      on systems where pip is unavailable (Ubuntu 24.04+ ships
 #      without pip by default).
+#
+# We use `readlink -e` (which returns nothing if the path doesn't resolve
+# to an existing file) so we don't get tricked by a broken self-symlink
+# left over from a previous failed install.
 INDICATOR_BIN=""
-if [[ -x "$HOME/.local/bin/hermes-mnemosyne-indicator" ]]; then
+if [[ -n "$(readlink -e "$HOME/.local/bin/hermes-mnemosyne-indicator" 2>/dev/null)" ]]; then
     INDICATOR_BIN="$HOME/.local/bin/hermes-mnemosyne-indicator"
-elif [[ -x "$REPO_ROOT/.venv/bin/hermes-mnemosyne-indicator" ]]; then
+elif [[ -n "$(readlink -e "$REPO_ROOT/.venv/bin/hermes-mnemosyne-indicator" 2>/dev/null)" ]]; then
     INDICATOR_BIN="$REPO_ROOT/.venv/bin/hermes-mnemosyne-indicator"
 fi
 
 if [[ -n "$INDICATOR_BIN" ]]; then
-    ln -sf "$INDICATOR_BIN" "$BIN_DIR/hermes-mnemosyne-indicator"
+    # Only create the symlink if the source is actually somewhere different
+    # from the destination. If both are ~/.local/bin/hermes-...-indicator
+    # (the pip --user case with default PREFIX), `ln -sf A A` would
+    # create a self-referencing symlink that systemd then fails to open.
+    if [[ "$(readlink -f "$INDICATOR_BIN" 2>/dev/null || echo "$INDICATOR_BIN")" \
+            != "$(readlink -f "$BIN_DIR/hermes-mnemosyne-indicator" 2>/dev/null || echo "$BIN_DIR/hermes-mnemosyne-indicator")" ]]; then
+        ln -sf "$INDICATOR_BIN" "$BIN_DIR/hermes-mnemosyne-indicator"
+    fi
 else
     # Create a wrapper shim that invokes the module directly.
     cat > "$BIN_DIR/hermes-mnemosyne-indicator" <<PYEOF
