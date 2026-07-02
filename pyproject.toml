@@ -21,7 +21,7 @@ classifiers = [
     "Topic :: System :: Monitoring",
 ]
 dependencies = [
-    "hermes-tray-lib @ git+https://github.com/topbronson/hermes-tray-lib@v0.1.0",
+    "hermes-tray-lib @ git+https://github.com/topbronson/hermes-tray-lib@v0.1.1",
     "Pillow>=10.0",  # icon generation
 ]
 
