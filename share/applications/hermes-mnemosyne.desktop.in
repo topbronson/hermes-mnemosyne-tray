@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Hermes Mnemosyne
+GenericName=Memory Dashboard
+Comment=Hermes Mnemosyne tray controller (right-click for menu)
+Exec=__EXEC_LINE__
+Icon=hermes-mnemosyne-circle
+Terminal=false
+Categories=Network;Utility;
+StartupNotify=false
+Keywords=hermes;mnemosyne;memory;dashboard;ai;agent;

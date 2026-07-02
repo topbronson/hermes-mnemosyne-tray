@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Hermes Mnemosyne
+GenericName=Memory Dashboard
+Comment=Auto-start the Hermes Mnemosyne tray indicator at login
+Exec=__EXEC_LINE__
+Icon=hermes-mnemosyne-circle
+Terminal=false
+Categories=Network;Utility;
+StartupNotify=false
+X-GNOME-Autostart-Delay=5
+X-GNOME-Autostart-enabled=true
+Keywords=hermes;mnemosyne;memory;dashboard;ai;agent;
