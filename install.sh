@@ -21,7 +21,28 @@ SVG_DIR="$SHARE_DIR/icons/hicolor/scalable/apps"
 
 # Resolve the hermes binary path for HERMES_MNEMOSYNE_BIN injection
 HERMES_BIN_PATH="$(command -v hermes || true)"
-EXEC_LINE="/usr/bin/python3 $BIN_DIR/hermes-mnemosyne-indicator"
+
+# Pick the Python interpreter that has hermes-tray-lib + the indicator
+# package importable. We check the same three places the indicator
+# detection below uses; this single value drives both EXEC_LINE (for
+# the .desktop and systemd units) and the wrapper-shim shebang.
+INDICATOR_PY=""
+if [[ -x "$HOME/.local/bin/hermes-mnemosyne-indicator" ]]; then
+    # pip install --user → use system python (which has the package)
+    INDICATOR_PY="/usr/bin/python3"
+elif [[ -x "$REPO_ROOT/.venv/bin/hermes-mnemosyne-indicator" ]]; then
+    INDICATOR_PY="$REPO_ROOT/.venv/bin/python3"
+elif [[ -x "$REPO_ROOT/.venv/bin/python3" ]]; then
+    INDICATOR_PY="$REPO_ROOT/.venv/bin/python3"
+else
+    # No venv and no pip install — fall back to the system python. The
+    # wrapper shim (created later) will only work if the user has
+    # hermes-tray-lib system-wide, which is rare. They'll see a clear
+    # error at first start if it's missing.
+    INDICATOR_PY="/usr/bin/python3"
+fi
+
+EXEC_LINE="$INDICATOR_PY $BIN_DIR/hermes-mnemosyne-indicator"
 if [[ -n "$HERMES_BIN_PATH" && "$HERMES_BIN_PATH" != "$PREFIX/bin/hermes" ]]; then
     EXEC_LINE="/usr/bin/env HERMES_MNEMOSYNE_BIN=${HERMES_BIN_PATH} $EXEC_LINE"
 fi
@@ -62,13 +83,42 @@ echo "  systemd:    $SYSTEMD_USER_DIR/hermes-mnemosyne-indicator.service"
 
 mkdir -p "$BIN_DIR" "$APPS_DIR" "$AUTOSTART_DIR" "$ICON_DIR" "$SVG_DIR" "$SYSTEMD_WANTS_DIR"
 
-# Copy the indicator console-script (installed by `pip install --user`)
-# If the user hasn't pip-installed yet, fall back to running the module directly.
+# Locate the indicator console-script. Check three places, in order:
+#   1. ~/.local/bin/        (the `pip install --user` location)
+#   2. <REPO>/.venv/bin/    (the python -m venv install location)
+#   3. None — fall back to a wrapper shim that uses $INDICATOR_PY
+#      (chosen above) to run the indicator directly from the repo source.
+#      This makes ./install.sh work without a `pip install --user` step
+#      on systems where pip is unavailable (Ubuntu 24.04+ ships
+#      without pip by default).
+INDICATOR_BIN=""
 if [[ -x "$HOME/.local/bin/hermes-mnemosyne-indicator" ]]; then
-    ln -sf "$HOME/.local/bin/hermes-mnemosyne-indicator" "$BIN_DIR/hermes-mnemosyne-indicator"
+    INDICATOR_BIN="$HOME/.local/bin/hermes-mnemosyne-indicator"
+elif [[ -x "$REPO_ROOT/.venv/bin/hermes-mnemosyne-indicator" ]]; then
+    INDICATOR_BIN="$REPO_ROOT/.venv/bin/hermes-mnemosyne-indicator"
+fi
+
+if [[ -n "$INDICATOR_BIN" ]]; then
+    ln -sf "$INDICATOR_BIN" "$BIN_DIR/hermes-mnemosyne-indicator"
 else
-    echo "Warning: hermes-mnemosyne-indicator not found in ~/.local/bin"
-    echo "         (run 'pip install --user -e .' in the repo first)"
+    # Create a wrapper shim that invokes the module directly.
+    cat > "$BIN_DIR/hermes-mnemosyne-indicator" <<PYEOF
+#!/usr/bin/env python3
+"""Auto-generated shim - runs the Mnemosyne indicator from $REPO_ROOT.
+
+Uses the python interpreter that has hermes-tray-lib on the path; this
+is the venv's python if a venv was created, else the system python
+(which only works if hermes-tray-lib is system-wide installable).
+"""
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path("$REPO_ROOT") / "src"))
+from hermes_mnemosyne_tray.__main__ import main
+sys.exit(main())
+PYEOF
+    chmod +x "$BIN_DIR/hermes-mnemosyne-indicator"
+    echo "Created wrapper shim at $BIN_DIR/hermes-mnemosyne-indicator"
+    echo "(no console script found; shim uses $INDICATOR_PY from repo source)"
 fi
 
 # Render .desktop templates
