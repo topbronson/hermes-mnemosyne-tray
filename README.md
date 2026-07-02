@@ -28,6 +28,20 @@ sudo apt install -y python3-gi gir1.2-gtk-3.0 gir1.2-appindicator3-0.1
 
 git clone https://github.com/topbronson/hermes-mnemosyne-tray
 cd hermes-mnemosyne-tray
+```
+
+Then **pick one** of these three install paths — they're all equivalent
+functionally, just different trade-offs:
+
+| Path | When to use | Command |
+|---|---|---|
+| **venv (recommended)** | Ubuntu 24.04+ has no `pip` by default; this avoids `sudo` | `python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"` |
+| `pip install --user` | You already have `pip` set up | `pip install --user -e ".[dev]"` |
+| **no pip at all** | Just want the tray icon, skip the dev deps | none — `install.sh` creates a wrapper shim that runs from the repo source |
+
+Then:
+
+```bash
 ./install.sh
 ```
 
