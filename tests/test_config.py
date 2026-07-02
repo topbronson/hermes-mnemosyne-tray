@@ -8,14 +8,12 @@ def test_config_defaults() -> None:
     cfg = make_config()
     assert cfg.name == "mnemosyne"
     assert cfg.title == "Mnemosyne"
-    assert cfg.bin == "hermes"
-    # The Mnemosyne plugin is served by the unified `hermes dashboard` —
-    # we supervise that, not a separate `mnemosyne dashboard` command.
-    assert cfg.subcommand == ("dashboard",)
-    # Same port as the unified hermes-dashboard.
-    assert cfg.port == 9119
-    # We don't auto-start; the parent dashboard owns that.
-    assert cfg.auto_start is False
+    # The Mnemosyne dashboard is a standalone server (the
+    # mnemosyne-dashboard plugin's server.py) — not part of `hermes dashboard`.
+    assert cfg.bin == "python3"
+    assert cfg.subcommand[0].endswith("server.py")
+    assert cfg.port == 8765
+    assert cfg.host == "localhost"
 
 
 def test_config_icon_fallback() -> None:
@@ -25,8 +23,15 @@ def test_config_icon_fallback() -> None:
     assert str(cfg.icon_fallback_path).endswith("hermes-mnemosyne-circle-64.png")
 
 
-def test_config_targets_unified_dashboard_url() -> None:
+def test_config_targets_mnemosyne_port() -> None:
     cfg = make_config()
-    # The "Open Mnemosyne" menu item opens the unified dashboard, not
-    # a separate Mnemosyne port (the Mnemosyne plugin is integrated there).
-    assert "9119" in cfg.url
+    # The "Open Mnemosyne" menu item opens port 8765 (the plugin's
+    # standalone server), not the unified hermes-dashboard's 9119.
+    assert "8765" in cfg.url
+
+
+def test_config_includes_db_flag() -> None:
+    """server.py needs the --db flag to find the SQLite database."""
+    cfg = make_config()
+    assert "--db" in cfg.subcommand
+    assert any("mnemosyne.db" in arg for arg in cfg.subcommand)

@@ -30,18 +30,18 @@ HERMES_BIN_PATH="$(command -v hermes || true)"
 # to an existing file) so we don't get tricked by a broken self-symlink
 # left over from a previous failed install.
 INDICATOR_PY=""
-if [[ -n "$(readlink -e "$HOME/.local/bin/hermes-mnemosyne-indicator" 2>/dev/null)" ]]; then
-    # pip install --user → use system python (which has the package)
-    INDICATOR_PY="/usr/bin/python3"
-elif [[ -n "$(readlink -e "$REPO_ROOT/.venv/bin/hermes-mnemosyne-indicator" 2>/dev/null)" ]]; then
+if [[ -n "$(readlink -e "$REPO_ROOT/.venv/bin/hermes-mnemosyne-indicator" 2>/dev/null)" ]]; then
+    # venv install: use the venv's python. The console script under
+    # ~/.local/bin/ is usually a symlink to the venv one, but the
+    # actual interpreter must be the venv python for hermes_tray /
+    # Pillow to be importable.
     INDICATOR_PY="$REPO_ROOT/.venv/bin/python3"
+elif [[ -n "$(readlink -e "$HOME/.local/bin/hermes-mnemosyne-indicator" 2>/dev/null)" ]]; then
+    # pip install --user to a system python: use that system python.
+    INDICATOR_PY="/usr/bin/python3"
 elif [[ -x "$REPO_ROOT/.venv/bin/python3" ]]; then
     INDICATOR_PY="$REPO_ROOT/.venv/bin/python3"
 else
-    # No venv and no pip install — fall back to the system python. The
-    # wrapper shim (created later) will only work if the user has
-    # hermes-tray-lib system-wide, which is rare. They'll see a clear
-    # error at first start if it's missing.
     INDICATOR_PY="/usr/bin/python3"
 fi
 
@@ -53,17 +53,38 @@ fi
 # -----------------------------------------------------------------------------
 # Auto-detect HERMES_MNEMOSYNE_HOST
 # -----------------------------------------------------------------------------
-# The Mnemosyne dashboard plugin in ~/.hermes/config.yaml is the source of
-# truth. If that doesn't have a `host:` line, fall back to the user's
-# Tailscale IPv4 address (`tailscale ip -4` is the canonical source for
-# that). Final fallback: localhost.
-DETECTED_MNEMOSYNE_HOST="$(grep -E '^\s*host:' "$HOME/.hermes/config.yaml" 2>/dev/null \
-    | head -1 | awk -F: '{print $2}' | tr -d ' "' || true)"
-if [[ -z "$DETECTED_MNEMOSYNE_HOST" ]]; then
+# Search order:
+#   1. The Mnemosyne dashboard plugin's own config file
+#      (~/.hermes/mnemosyne/dashboard_config.toml — created by the plugin
+#      on first run). Most authoritative because the plugin's _start()
+#      reads from this exact file.
+#   2. The user's Tailscale IPv4 address (`tailscale ip -4`).
+#   3. localhost.
+DETECTED_MNEMOSYNE_HOST=""
+MNEMOSYNE_CONFIG="$HOME/.hermes/mnemosyne/dashboard_config.toml"
+if [[ -f "$MNEMOSYNE_CONFIG" ]]; then
+    DETECTED_MNEMOSYNE_HOST="$(grep -E '^\s*host\s*=' "$MNEMOSYNE_CONFIG" 2>/dev/null \
+        | head -1 | sed -e 's/.*=//' -e 's/^["'\'']//' -e 's/["'\'']$//' || true)"
+fi
+if [[ -z "$DETECTED_MNEMOSYNE_HOST" || "$DETECTED_MNEMOSYNE_HOST" == "0.0.0.0" ]]; then
     DETECTED_MNEMOSYNE_HOST="$(tailscale ip -4 2>/dev/null | head -1 || true)"
 fi
 HERMES_MNEMOSYNE_HOST="${HERMES_MNEMOSYNE_HOST:-${DETECTED_MNEMOSYNE_HOST:-localhost}}"
 echo "Mnemosyne host: $HERMES_MNEMOSYNE_HOST"
+
+# -----------------------------------------------------------------------------
+# Auto-disable auto-start if the dashboard is already running
+# -----------------------------------------------------------------------------
+# If the user has already started the Mnemosyne dashboard (manually, or
+# from a previous session, or from the hermes plugin's "Start" button),
+# the indicator should only supervise — not auto-start, which would
+# race for port 8765.
+if ss -tln 2>/dev/null | grep -q ':8765 '; then
+    AUTO_START="0"
+    echo "Detected Mnemosyne dashboard already listening on port 8765 — auto-start disabled."
+else
+    AUTO_START="1"
+fi
 
 # -----------------------------------------------------------------------------
 # Detect hermes-gateway.service
@@ -114,8 +135,9 @@ if [[ -n "$INDICATOR_BIN" ]]; then
     # from the destination. If both are ~/.local/bin/hermes-...-indicator
     # (the pip --user case with default PREFIX), `ln -sf A A` would
     # create a self-referencing symlink that systemd then fails to open.
-    if [[ "$(readlink -f "$INDICATOR_BIN" 2>/dev/null || echo "$INDICATOR_BIN")" \
-            != "$(readlink -f "$BIN_DIR/hermes-mnemosyne-indicator" 2>/dev/null || echo "$BIN_DIR/hermes-mnemosyne-indicator")" ]]; then
+    SRC_REAL=$(readlink -f "$INDICATOR_BIN" 2>/dev/null || echo "$INDICATOR_BIN")
+    DST_REAL=$(readlink -f "$BIN_DIR/hermes-mnemosyne-indicator" 2>/dev/null || echo "$BIN_DIR/hermes-mnemosyne-indicator")
+    if [[ "$SRC_REAL" != "$DST_REAL" ]]; then
         ln -sf "$INDICATOR_BIN" "$BIN_DIR/hermes-mnemosyne-indicator"
     fi
 else
@@ -152,6 +174,7 @@ sed "s|__EXEC_LINE__|$EXEC_LINE|g" \
 sed \
     -e "s|__EXEC_LINE__|$EXEC_LINE|g" \
     -e "s|__HERMES_MNEMOSYNE_HOST__|$HERMES_MNEMOSYNE_HOST|g" \
+    -e "s|__HERMES_MNEMOSYNE_AUTO_START__|$AUTO_START|g" \
     -e "s|__WANTED_BY__|$WANTED_BY|g" \
     "$REPO_ROOT/share/systemd/hermes-mnemosyne-indicator.service.in" \
     > "$SYSTEMD_USER_DIR/hermes-mnemosyne-indicator.service"

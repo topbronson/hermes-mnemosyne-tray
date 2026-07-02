@@ -8,6 +8,7 @@ StartLimitIntervalSec=0
 Type=simple
 ExecStart=__EXEC_LINE__
 Environment="HERMES_MNEMOSYNE_HOST=__HERMES_MNEMOSYNE_HOST__"
+Environment="HERMES_MNEMOSYNE_AUTO_START=__HERMES_MNEMOSYNE_AUTO_START__"
 Restart=on-failure
 RestartSec=5
 KillMode=mixed
